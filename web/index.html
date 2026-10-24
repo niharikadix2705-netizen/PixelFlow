@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PixelFlow Image Studio</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Arial, sans-serif; background: #f2f4f8; color: #20263a; }
+header { background: #20263a; color: white; padding: 24px; text-align: center; }
+header h1 { margin: 0 0 8px; }
+header p { margin: 0; color: #d9deed; }
+main { max-width: 1100px; margin: 28px auto; padding: 0 16px; }
+.layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.panel { background: white; border-radius: 14px; padding: 22px; box-shadow: 0 4px 18px #20263a10; }
+h2 { font-size: 19px; margin: 24px 0 0; }
+h2:first-child { margin-top: 0; }
+label { display: block; font-weight: bold; font-size: 14px; margin: 15px 0 7px; }
+input, select { width: 100%; padding: 11px; border: 1px solid #cbd2df; border-radius: 8px; background: white; }
+input[type="range"] { padding: 0; }
+input[type="checkbox"] { width: auto; margin-right: 8px; }
+.check { display: flex; align-items: center; font-weight: normal; margin: 10px 0 0; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hint, .muted { color: #667085; font-size: 13px; line-height: 1.5; }
+.val { float: right; font-weight: normal; color: #667085; }
+button { display: block; width: 100%; padding: 13px; margin-top: 20px; background: #4258d0; border: 0; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; }
+button:disabled { opacity: .6; cursor: wait; }
+.preview { display: none; width: 100%; max-height: 200px; object-fit: contain; margin-top: 12px; background: #eef0f5; border-radius: 8px; }
+#summary { font-weight: bold; margin-bottom: 10px; }
+.row { border: 1px solid #e2e6ef; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+.row .name { font-weight: bold; font-size: 14px; overflow-wrap: anywhere; }
+.row .state { font-size: 13px; color: #667085; margin-top: 4px; overflow-wrap: anywhere; }
+.row .state.ok { color: #16794c; }
+.row .state.bad { color: #b42318; }
+.thumbs { display: none; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.thumbs img { width: 100%; max-height: 130px; object-fit: contain; background: #eef0f5; border-radius: 6px; }
+.row a { display: none; margin-top: 8px; font-size: 13px; font-weight: bold; color: #4258d0; }
+footer { text-align: center; padding: 24px; color: #667085; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PixelFlow</h1>
+  <p>Your local image-processing studio</p>
+</header>
+
+<main>
+<div class="layout">
+<section class="panel">
+  <form id="editor">
+    <h2>1. Choose your images</h2>
+    <label for="file">Image files (JPEG, PNG or WebP, up to 10 MB each, max 20)</label>
+    <input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp" multiple required>
+    <p class="hint" id="count">No images selected. Hold Ctrl to pick several.</p>
+    <img id="preview" class="preview" alt="Preview of the first selected image">
+
+    <h2>2. Filter</h2>
+    <label for="filter_name">Filter</label>
+    <select id="filter_name" name="filter_name">
+      <option value="none">Original</option>
+      <option value="grayscale">Black and white</option>
+      <option value="sepia">Sepia / vintage</option>
+      <option value="blur">Blur</option>
+      <option value="sharpen">Sharpen</option>
+    </select>
+
+    <h2>3. Adjustments</h2>
+    <label for="brightness">Brightness <span class="val" id="brightness_v">1.00</span></label>
+    <input id="brightness" name="brightness" type="range" min="0" max="3" step="0.05" value="1">
+    <label for="contrast">Contrast <span class="val" id="contrast_v">1.00</span></label>
+    <input id="contrast" name="contrast" type="range" min="0" max="3" step="0.05" value="1">
+    <label for="saturation">Saturation <span class="val" id="saturation_v">1.00</span></label>
+    <input id="saturation" name="saturation" type="range" min="0" max="3" step="0.05" value="1">
+    <p class="hint">1.00 means no change.</p>
+
+    <h2>4. Crop (optional)</h2>
+    <p class="hint">Applied to every image. Leave crop width and height at 0 to skip.</p>
+    <div class="two">
+      <div><label for="crop_x">X position</label>
+        <input id="crop_x" name="crop_x" type="number" min="0" value="0"></div>
+      <div><label for="crop_y">Y position</label>
+        <input id="crop_y" name="crop_y" type="number" min="0" value="0"></div>
+      <div><label for="crop_width">Crop width</label>
+        <input id="crop_width" name="crop_width" type="number" min="0" value="0"></div>
+      <div><label for="crop_height">Crop height</label>
+        <input id="crop_height" name="crop_height" type="number" min="0" value="0"></div>
+    </div>
+
+    <h2>5. Resize, rotate, flip</h2>
+    <p class="hint">Enter both resize dimensions (up to 5000 px), or leave both at 0 to skip.</p>
+    <div class="two">
+      <div><label for="resize_width">Output width</label>
+        <input id="resize_width" name="resize_width" type="number" min="0" max="5000" value="0"></div>
+      <div><label for="resize_height">Output height</label>
+        <input id="resize_height" name="resize_height" type="number" min="0" max="5000" value="0"></div>
+    </div>
+
+    <label for="rotation">Rotation</label>
+    <select id="rotation" name="rotation">
+      <option value="0">No rotation</option>
+      <option value="90">90&deg; clockwise</option>
+      <option value="180">180&deg;</option>
+      <option value="270">270&deg; clockwise</option>
+    </select>
+
+    <label class="check"><input type="checkbox" name="flip_horizontal" value="true"> Flip horizontally</label>
+    <label class="check"><input type="checkbox" name="flip_vertical" value="true"> Flip vertically</label>
+
+    <h2>6. Output</h2>
+    <div class="two">
+      <div><label for="output_format">Format</label>
+        <select id="output_format" name="output_format">
+          <option value="png">PNG</option>
+          <option value="jpeg">JPEG</option>
+          <option value="webp">WebP</option>
+        </select></div>
+      <div><label for="quality">Quality (1-100)</label>
+        <input id="quality" name="quality" type="number" min="1" max="100" value="90"></div>
+    </div>
+    <p class="hint">Quality applies to JPEG and WebP only.</p>
+
+    <button id="submit" type="submit">Process images</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Your results</h2>
+  <p class="muted">Each image becomes its own job, and the workers share them.</p>
+  <div id="summary" role="status" aria-live="polite">Waiting for images.</div>
+  <div id="list"></div>
+</section>
+</div>
+</main>
+
+<footer>PixelFlow &middot; Running locally on your computer</footer>
+
+<script>
+const MAX_FILES = 20;
+const form = document.getElementById("editor");
+const fileInput = document.getElementById("file");
+const preview = document.getElementById("preview");
+const countBox = document.getElementById("count");
+const summary = document.getElementById("summary");
+const list = document.getElementById("list");
+const submitButton = document.getElementById("submit");
+
+let urls = [];
+
+function clearUrls() {
+  urls.forEach(u => URL.revokeObjectURL(u));
+  urls = [];
+}
+
+["brightness", "contrast", "saturation"].forEach(id => {
+  const input = document.getElementById(id);
+  const label = document.getElementById(id + "_v");
+  input.addEventListener("input", () => {
+    label.textContent = Number(input.value).toFixed(2);
+  });
+});
+
+fileInput.addEventListener("change", () => {
+  clearUrls();
+  preview.style.display = "none";
+  const files = Array.from(fileInput.files);
+
+  if (!files.length) {
+    countBox.textContent = "No images selected. Hold Ctrl to pick several.";
+    return;
+  }
+
+  countBox.textContent = files.length + " image(s) selected." +
+    (files.length > MAX_FILES ? " Maximum is " + MAX_FILES + "." : "");
+
+  const first = URL.createObjectURL(files[0]);
+  urls.push(first);
+  preview.src = first;
+  preview.style.display = "block";
+});
+
+function makeRow(file) {
+  const el = document.createElement("div");
+  el.className = "row";
+
+  const name = document.createElement("div");
+  name.className = "name";
+  name.textContent = file.name;
+
+  const state = document.createElement("div");
+  state.className = "state";
+  state.textContent = "Waiting to upload...";
+
+  const thumbs = document.createElement("div");
+  thumbs.className = "thumbs";
+  const before = document.createElement("img");
+  before.alt = "Original";
+  const after = document.createElement("img");
+  after.alt = "Processed";
+  thumbs.appendChild(before);
+  thumbs.appendChild(after);
+
+  const link = document.createElement("a");
+  link.textContent = "Download";
+
+  el.appendChild(name);
+  el.appendChild(state);
+  el.appendChild(thumbs);
+  el.appendChild(link);
+  list.appendChild(el);
+
+  return { file, el, state, thumbs, before, after, link, jobId: null, done: false };
+}
+
+function setState(row, text, kind) {
+  row.state.textContent = text;
+  row.state.className = "state" + (kind ? " " + kind : "");
+}
+
+function updateSummary(rows) {
+  const finished = rows.filter(r => r.done).length;
+  summary.textContent = finished + " of " + rows.length + " finished";
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const files = Array.from(fileInput.files);
+  if (!files.length) {
+    summary.textContent = "Please select at least one image.";
+    return;
+  }
+  if (files.length > MAX_FILES) {
+    summary.textContent = "Please select at most " + MAX_FILES + " images.";
+    return;
+  }
+
+  submitButton.disabled = true;
+  list.innerHTML = "";
+  const rows = files.map(makeRow);
+  updateSummary(rows);
+
+  // Upload every image as its own job
+  for (const row of rows) {
+    try {
+      const data = new FormData(form);
+      data.delete("file");
+      data.append("file", row.file);
+
+      setState(row, "Uploading...");
+      const response = await fetch("/upload", { method: "POST", body: data });
+      const job = await response.json();
+
+      if (!response.ok) {
+        throw new Error(job.detail || "Upload failed.");
+      }
+      row.jobId = job.job_id;
+      setState(row, "Queued");
+    } catch (error) {
+      row.done = true;
+      setState(row, "Rejected: " + error.message, "bad");
+    }
+    updateSummary(rows);
+  }
+
+  // Check all jobs until they finish
+  for (let attempt = 0; attempt < 180; attempt++) {
+    const pending = rows.filter(r => !r.done);
+    if (!pending.length) break;
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    for (const row of pending) {
+      try {
+        const check = await fetch("/status/" + row.jobId);
+        const result = await check.json();
+        if (!check.ok) throw new Error(result.detail || "Status check failed.");
+
+        if (result.status === "completed") {
+          const url = "/download/" + encodeURIComponent(result.filename);
+          const ms = result.duration_ms ? " in " + Math.round(result.duration_ms) + " ms" : "";
+          setState(row, "Completed" + ms, "ok");
+
+          const originalUrl = URL.createObjectURL(row.file);
+          urls.push(originalUrl);
+          row.before.src = originalUrl;
+          row.after.src = url;
+          row.thumbs.style.display = "grid";
+          row.link.href = url;
+          row.link.style.display = "inline-block";
+          row.done = true;
+        } else if (result.status === "failed") {
+          setState(row, "Failed: " + (result.error || "Processing failed."), "bad");
+          row.done = true;
+        } else {
+          setState(row, "Status: " + result.status);
+        }
+      } catch (error) {
+        setState(row, "Error: " + error.message, "bad");
+        row.done = true;
+      }
+    }
+    updateSummary(rows);
+  }
+
+  rows.filter(r => !r.done).forEach(r => setState(r, "Still processing. Job ID: " + r.jobId));
+  updateSummary(rows);
+  submitButton.disabled = false;
+});
+</script>
+</body>
+</html>

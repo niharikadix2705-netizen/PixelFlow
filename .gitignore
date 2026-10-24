@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+processed_images/
+structure.txt
+*_backup.py
+*_before_*.py
+*_before_*.yml
+web/index_before_*.html
+benchmark_results.json
+.env
