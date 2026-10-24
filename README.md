@@ -49,3 +49,28 @@ The test also exposed a real bug: a late duplicate run could overwrite a complet
 | Logs and /metrics | CloudWatch |
 
 Nothing in this repository is deployed to AWS.
+
+## Tests
+
+    pip install pytest pillow requests redis
+    python -m pytest tests -v
+
+- `tests/test_operations.py`: 17 tests of the editing code (no Docker needed)
+- `tests/test_api.py`: 14 tests against the running stack (start the stack first)
+
+GitHub Actions runs the 17 operation tests and a Docker build on every push. The API tests run locally only.
+
+## Limitations
+
+- Delivery is at-least-once. If the visibility timeout is shorter than a job, a slow worker can be mistaken for a dead one and the job may run twice. Duplicate protection reduces the impact.
+- Output files stay on a Docker volume and are not cleaned up automatically.
+- There is no user authentication.
+- Benchmark results depend on hardware and image size.
+
+## Future work
+
+- C++/OpenCV worker and a Python vs C++ comparison (the OpenCV build environment is verified in Docker, but the worker is not written yet)
+- Terraform for the AWS resources (validate and plan only)
+- LocalStack to rehearse S3, SQS and DynamoDB locally
+- Dashboard page, watermark and text overlay, presets
+- Deployment to AWS, after a cost estimate
