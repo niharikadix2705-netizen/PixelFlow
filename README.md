@@ -30,3 +30,22 @@ Open http://localhost:8000
 | 3 | 3.2 s | 9.33 | 286.5 ms | 323.5 ms |
 
 Throughput rose 1.84x with 3 workers. Scaling is below 3x because the workers share the host CPU, one Redis instance and one disk volume. Each configuration was run once on one machine, so treat the numbers as indicative.
+
+## Crash recovery test
+
+A worker was deliberately killed with `docker kill` while processing a job. Another worker noticed the job had stopped updating, requeued it, and completed it. The final job record showed `status: completed` and `attempts: 2`.
+
+The test also exposed a real bug: a late duplicate run could overwrite a completed job with `failed`. It was fixed so a completed job can no longer be overwritten.
+
+## How this maps to AWS (design only, not deployed)
+
+| Local component | AWS equivalent |
+|---|---|
+| Redis list (queue) | Amazon SQS with a dead-letter queue |
+| Processing list and recovery | SQS visibility timeout |
+| Redis job hash | Amazon DynamoDB |
+| Shared volume | Amazon S3 with pre-signed URLs |
+| Worker containers | ECS on Fargate, scaled on queue depth |
+| Logs and /metrics | CloudWatch |
+
+Nothing in this repository is deployed to AWS.
