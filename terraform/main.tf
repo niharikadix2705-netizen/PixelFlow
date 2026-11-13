@@ -67,3 +67,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "images" {
     }
   }
 }
+# Job records (status, timing, attempts), equivalent to the Redis job hash
+resource "aws_dynamodb_table" "jobs" {
+  name         = "${var.project}-jobs"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "job_id"
+
+  attribute {
+    name = "job_id"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+}
