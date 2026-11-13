@@ -10,3 +10,6 @@ structure.txt
 web/index_before_*.html
 benchmark_results.json
 .env
+.terraform/
+*.tfstate
+*.tfstate.*
