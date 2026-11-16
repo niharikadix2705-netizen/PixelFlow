@@ -83,3 +83,51 @@ resource "aws_dynamodb_table" "jobs" {
     enabled        = true
   }
 }
+# Role that the worker containers run as
+data "aws_iam_policy_document" "ecs_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "worker" {
+  name               = "${var.project}-worker-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+# Least privilege: only this project's queue, bucket and table
+data "aws_iam_policy_document" "worker_access" {
+  statement {
+    sid = "ReadAndDeleteJobs"
+    actions = [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueAttributes",
+    ]
+    resources = [aws_sqs_queue.jobs.arn]
+  }
+
+  statement {
+    sid       = "ReadAndWriteImages"
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.images.arn}/*"]
+  }
+
+  statement {
+    sid       = "ReadAndUpdateJobRecords"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.jobs.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "worker" {
+  name   = "${var.project}-worker-access"
+  role   = aws_iam_role.worker.id
+  policy = data.aws_iam_policy_document.worker_access.json
+}
