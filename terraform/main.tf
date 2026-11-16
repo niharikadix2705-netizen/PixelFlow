@@ -131,3 +131,204 @@ resource "aws_iam_role_policy" "worker" {
   role   = aws_iam_role.worker.id
   policy = data.aws_iam_policy_document.worker_access.json
 }
+# ---- ECS (worker containers) ----
+
+variable "vpc_id" {
+  type        = string
+  description = "VPC the workers run in"
+}
+
+variable "subnet_ids" {
+  type        = list(string)
+  description = "Public subnets for the workers"
+}
+
+variable "worker_image" {
+  type        = string
+  description = "Container image address in ECR"
+}
+
+variable "desired_count" {
+  type        = number
+  default     = 0
+  description = "Number of workers; 0 means nothing runs"
+}
+
+resource "aws_ecs_cluster" "main" {
+  name = "${var.project}-cluster"
+}
+
+resource "aws_cloudwatch_log_group" "worker" {
+  name              = "/ecs/${var.project}-worker"
+  retention_in_days = 7
+}
+
+# Role ECS itself uses to pull the image and write logs
+resource "aws_iam_role" "execution" {
+  name               = "${var.project}-execution-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "execution" {
+  role       = aws_iam_role.execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+resource "aws_security_group" "worker" {
+  name        = "${var.project}-worker-sg"
+  description = "Workers: no inbound traffic, outbound only"
+  vpc_id      = var.vpc_id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_ecs_task_definition" "worker" {
+  family                   = "${var.project}-worker"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.worker.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "worker"
+      image     = var.worker_image
+      essential = true
+      environment = [
+        { name = "JOBS_QUEUE_URL", value = aws_sqs_queue.jobs.url },
+        { name = "IMAGES_BUCKET", value = aws_s3_bucket.images.bucket },
+        { name = "JOBS_TABLE", value = aws_dynamodb_table.jobs.name },
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.worker.name
+          awslogs-region        = var.region
+          awslogs-stream-prefix = "worker"
+        }
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_service" "worker" {
+  name            = "${var.project}-worker"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.worker.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = var.subnet_ids
+    security_groups  = [aws_security_group.worker.id]
+    assign_public_ip = true
+  }
+
+  lifecycle {
+    ignore_changes = [desired_count]
+  }
+}
+# ---- Autoscaling on queue depth ----
+
+variable "max_workers" {
+  type    = number
+  default = 3
+}
+
+variable "scale_up_threshold" {
+  type        = number
+  default     = 5
+  description = "Waiting jobs that trigger adding a worker"
+}
+
+resource "aws_appautoscaling_target" "worker" {
+  service_namespace  = "ecs"
+  scalable_dimension = "ecs:service:DesiredCount"
+  resource_id        = "service/${aws_ecs_cluster.main.name}/${aws_ecs_service.worker.name}"
+  min_capacity       = 0
+  max_capacity       = var.max_workers
+}
+
+resource "aws_appautoscaling_policy" "scale_up" {
+  name               = "${var.project}-scale-up"
+  policy_type        = "StepScaling"
+  service_namespace  = aws_appautoscaling_target.worker.service_namespace
+  scalable_dimension = aws_appautoscaling_target.worker.scalable_dimension
+  resource_id        = aws_appautoscaling_target.worker.resource_id
+
+  step_scaling_policy_configuration {
+    adjustment_type         = "ChangeInCapacity"
+    cooldown                = 60
+    metric_aggregation_type = "Maximum"
+
+    step_adjustment {
+      metric_interval_lower_bound = 0
+      scaling_adjustment          = 1
+    }
+  }
+}
+
+resource "aws_appautoscaling_policy" "scale_down" {
+  name               = "${var.project}-scale-down"
+  policy_type        = "StepScaling"
+  service_namespace  = aws_appautoscaling_target.worker.service_namespace
+  scalable_dimension = aws_appautoscaling_target.worker.scalable_dimension
+  resource_id        = aws_appautoscaling_target.worker.resource_id
+
+  step_scaling_policy_configuration {
+    adjustment_type         = "ChangeInCapacity"
+    cooldown                = 300
+    metric_aggregation_type = "Maximum"
+
+    step_adjustment {
+      metric_interval_upper_bound = 0
+      scaling_adjustment          = -1
+    }
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "queue_high" {
+  alarm_name          = "${var.project}-queue-high"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.jobs.name }
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 1
+  threshold           = var.scale_up_threshold
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  alarm_actions       = [aws_appautoscaling_policy.scale_up.arn]
+}
+
+resource "aws_cloudwatch_metric_alarm" "queue_empty" {
+  alarm_name          = "${var.project}-queue-empty"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.jobs.name }
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 5
+  threshold           = 0
+  comparison_operator = "LessThanOrEqualToThreshold"
+  alarm_actions       = [aws_appautoscaling_policy.scale_down.arn]
+}
+
+# Alarm for jobs that landed in the dead-letter queue
+resource "aws_cloudwatch_metric_alarm" "dlq_not_empty" {
+  alarm_name          = "${var.project}-dlq-not-empty"
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  dimensions          = { QueueName = aws_sqs_queue.jobs_dlq.name }
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+}
