@@ -70,7 +70,22 @@ GitHub Actions runs the 17 operation tests and a Docker build on every push. The
 ## Future work
 
 - C++/OpenCV worker and a Python vs C++ comparison (the OpenCV build environment is verified in Docker, but the worker is not written yet)
-- Terraform for the AWS resources (validate and plan only)
+- Terraform plan and apply against a real AWS account, after a cost estimate
 - LocalStack to rehearse S3, SQS and DynamoDB locally
 - Dashboard page, watermark and text overlay, presets
 - Deployment to AWS, after a cost estimate
+
+## Terraform (infrastructure as code, not deployed)
+
+The `terraform/` folder describes the AWS version of this system. It has been checked with `terraform validate` only. Nothing has been planned against an account or applied, and no AWS resources exist.
+
+| Terraform resource | Purpose |
+|---|---|
+| SQS jobs queue and dead-letter queue | Job queue with a 120 s visibility timeout; a job is parked after 3 receives |
+| S3 images bucket | Private, public access blocked, objects expire after 1 day |
+| DynamoDB jobs table | Job records, pay per request, TTL on expires_at |
+| IAM worker role | Least-privilege access to this queue, bucket and table only |
+| ECS cluster, task definition and service | Fargate workers, default desired count 0 |
+| Application Auto Scaling and CloudWatch alarms | Scale from 0 to 3 workers on queue depth, plus a dead-letter alarm |
+
+Limitations: the application code still uses Redis and the local disk, so it would need SQS, S3 and DynamoDB support before it could run on this infrastructure. The scaling thresholds are untested, and scale-down watches only waiting messages, not jobs in progress.
